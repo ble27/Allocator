@@ -1,8 +1,10 @@
+#include <cstdint>
 #include <stdint.h>
 #include <stdio.h>
 #include <unistd.h>
 #include <stdalign.h>
 #include <pthread.h>
+#include <string.h>
 
 /* 
 / Every memory block contains a header and a memory block  
@@ -110,4 +112,28 @@ void free(void *block) {
     header->is_free = 1;
     pthread_mutex_unlock(&global_malloc_lock);
     return;
+}
+
+/*
+/ Allocates memory for an array of num elements of nsz bytes each and 
+/ returns a pionter to the allocated memory. The memory is set to all 0s
+*/
+
+void* calloc(size_t num, size_t nsz) {
+    void* block;
+    if (!num || !nsz) {
+        return NULL;
+    }
+    // Check for multiplicative overflow
+    if (num != 0 && nsz > SIZE_MAX / num) {
+        return NULL;
+    }
+    size_t alloc_size = num * nsz;
+    block = malloc(alloc_size);
+    if (!block) {
+        return NULL;
+    }
+    // fill *ptr with value of length alloc_size 
+    memset(block, 0, alloc_size);
+    return block;
 }
