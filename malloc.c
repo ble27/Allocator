@@ -79,3 +79,35 @@ void* malloc(size_t sz) {
     pthread_mutex_unlock(&global_malloc_lock);
     return (void*)(header + 1);
 }
+
+void free(void *block) {
+    header_t *header, *tmp;
+    void* program_break;
+
+    if (!block) {
+        return;
+    }
+    pthread_mutex_lock(&global_malloc_lock);
+    header = (header_t*)block - 1; // block is memory section, block - 1 is the header metadata
+
+    program_break = sbrk(0); // the end of the heap memory pointer
+    if ((char*)block + header->sz == program_break) {
+        if (head == tail) { // both point to same memory block
+            head = tail = NULL;
+        }
+        else {
+            tmp = head; // singly list, need to traverse through every node to find the last node
+            while (tmp->next && tmp->next != tail) {
+                tmp = tmp->next;
+            }
+            // If we reach here, then we haved the second to last node
+            // The next one is the block to be freed
+            tmp->next = NULL;
+            tail = tmp;
+        }
+        sbrk(0 - sizeof(header_t) - header->sz); // release the memory to the system by subtracting from the current brk pointer
+    }
+    header->is_free = 1;
+    pthread_mutex_unlock(&global_malloc_lock);
+    return;
+}
