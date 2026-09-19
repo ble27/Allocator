@@ -15,11 +15,11 @@
 size_t total_allocated_bytes = 0;
 size_t total_deallocated_bytes = 0;
 
-alignas(16) struct header {
+struct header {
     size_t sz;
     unsigned is_free;
     struct header* next;
-};
+} __attribute__((aligned(16)));
 typedef struct header header_t;
 
 header_t *head, *tail;
@@ -36,6 +36,7 @@ header_t* get_free_block(size_t size) {
         }
         curr = curr->next; 
     }
+    return NULL;
 }
 /*
 / brk pointer points to the end of the heap
@@ -109,8 +110,8 @@ void free(void *block) {
             tmp->next = NULL;
             tail = tmp;
         }
-        sbrk(0 - sizeof(header_t) - header->sz); // release the memory to the system by subtracting from the current brk pointer
         total_deallocated_bytes += sizeof(header_t) + header->sz;
+        sbrk(0 - sizeof(header_t) - header->sz); // release the memory to the system by subtracting from the current brk pointer
     }
     header->is_free = 1;
     pthread_mutex_unlock(&global_malloc_lock);
@@ -163,24 +164,35 @@ void* realloc(void* block, size_t sz) {
     return ret;
 }
 
-int main() { 
-    pthread_mutex_init(&global_malloc_lock, NULL);
+int main() {
+    // Explicitly unbuffer stdout so lines print instantly even if it crashes mid-run
+    setvbuf(stdout, NULL, _IONBF, 0);
+
     void* initial_break = sbrk(0);
+    
+    printf("Starting system heap pointer: %p\n\n", initial_break);
 
-    void* p1 = malloc(100); // round up to 128 bytes
-    void* p2 = malloc(200); // round up to 224 bytes
+    printf("[Action] Requesting 2 memory blocks...\n");
+    void* p1 = malloc(100);  
+    
+    printf("Size allocated for p1: %zu bytes\n", ((header_t*)p1 - 1)->sz); // 16 * 7
+
+    void* p2 = malloc(200);  
+    
+    printf("-> Internally Tracked Allocations: %zu bytes\n", total_allocated_bytes);
+    printf("-> Actual System Heap Shift:       %ld bytes\n\n", (char*)sbrk(0) - (char*)initial_break);
+
+    printf("[Action] Releasing tail block (p2)...\n");
     free(p2);
-    printf("Total allocated: %zu bytes", total_allocated_bytes);
+    
+    printf("-> Internally Tracked Deallocations: %zu bytes\n", total_deallocated_bytes);
+    printf("-> Active System Heap Footprint:     %ld bytes\n\n", (char*)sbrk(0) - (char*)initial_break);
 
-    printf("Freeing p1\n");
+    printf("[Action] Releasing remaining block (p1)...\n");
     free(p1);
-    printf("Total deallocated: %zu bytes", total_deallocated_bytes);
 
-    printf("Freeing p2\n");
-    free(p2);
-    printf("Total deallocated: %zu bytes", total_deallocated_bytes);
+    printf("-> Final Unreturned Balance:         %ld bytes (0 = Clean)\n", (char*)sbrk(0) - (char*)initial_break);
+    printf("=== Process Completed Successfully ===\n");
 
-    printf("Final heap expansion:   %ld bytes (0 means perfectly clean!)\n", 
-        (char*)sbrk(0) - (char*)initial_break);
     return 0;
 }
