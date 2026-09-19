@@ -1,4 +1,3 @@
-#include <cstdint>
 #include <stdint.h>
 #include <stdio.h>
 #include <unistd.h>
@@ -13,6 +12,8 @@
 / Header file is 16 bytes aligned, and it contains both the size of the memory,
 / and a pointer to the next 16 bytes aligned header
 */
+size_t total_allocated_bytes = 0;
+size_t total_deallocated_bytes = 0;
 
 alignas(16) struct header {
     size_t sz;
@@ -67,6 +68,7 @@ void* malloc(size_t sz) {
         pthread_mutex_unlock(&global_malloc_lock);
         return NULL;
     }
+    total_allocated_bytes += total_size;
     header = block; // move header to where block is
     header->sz = aligned_size;
     header->is_free = 0;
@@ -108,6 +110,7 @@ void free(void *block) {
             tail = tmp;
         }
         sbrk(0 - sizeof(header_t) - header->sz); // release the memory to the system by subtracting from the current brk pointer
+        total_deallocated_bytes += sizeof(header_t) + header->sz;
     }
     header->is_free = 1;
     pthread_mutex_unlock(&global_malloc_lock);
@@ -136,4 +139,48 @@ void* calloc(size_t num, size_t nsz) {
     // fill *ptr with value of length alloc_size 
     memset(block, 0, alloc_size);
     return block;
+}
+
+/*
+/ Changes the size of the given block to size sz
+*/
+void* realloc(void* block, size_t sz) {
+    header_t* header;
+    void* ret;
+    if (!block || !sz) {
+        return NULL;
+    }    
+    header = (header_t*)block - 1;
+    if (header->sz >= sz) { // the block size already fulfills request
+        return block;
+    }
+    ret = malloc(sz);
+    if (ret) {
+        // mempcy(*dst, *src, size_t n)
+        memcpy(ret, block, header->sz);
+        free(block);
+    }
+    return ret;
+}
+
+int main() { 
+    pthread_mutex_init(&global_malloc_lock, NULL);
+    void* initial_break = sbrk(0);
+
+    void* p1 = malloc(100); // round up to 128 bytes
+    void* p2 = malloc(200); // round up to 224 bytes
+    free(p2);
+    printf("Total allocated: %zu bytes", total_allocated_bytes);
+
+    printf("Freeing p1\n");
+    free(p1);
+    printf("Total deallocated: %zu bytes", total_deallocated_bytes);
+
+    printf("Freeing p2\n");
+    free(p2);
+    printf("Total deallocated: %zu bytes", total_deallocated_bytes);
+
+    printf("Final heap expansion:   %ld bytes (0 means perfectly clean!)\n", 
+        (char*)sbrk(0) - (char*)initial_break);
+    return 0;
 }
